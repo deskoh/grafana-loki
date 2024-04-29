@@ -1,0 +1,54 @@
+version: "3.0"
+
+services:
+  grafana:
+    image: grafana/grafana:11.0.0-preview
+    container_name: grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_BASIC_ENABLED=false
+      - GF_FEATURE_TOGGLES_ENABLE=accessControlOnCall
+      - GF_INSTALL_PLUGINS=https://storage.googleapis.com/integration-artifacts/grafana-lokiexplore-app/grafana-lokiexplore-app-latest.zip;grafana-lokiexplore-app
+    ports:
+      - 3000:3000/tcp
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  loki:
+    image: grafana/loki:main-e9b6ce9
+    container_name: loki
+    environment:
+      LOG_CLUSTER_DEPTH: "8"
+      LOG_SIM_TH: "0.3"
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config/loki-config.yaml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml --pattern-ingester.enabled=true
+    restart: on-failure
+  generator:
+    image: svennergr/fake-logs-generator:main-c8d21cc
+    command: -url http://loki:3100/loki/api/v1/push
+
+  minio:
+    image: minio/minio:RELEASE.2024-04-06T05-26-02Z
+    container_name: minio
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /data/loki-data && \
+        mkdir -p /data/loki-ruler &&
+        minio server --address "0.0.0.0:9000" --console-address "0.0.0.0:9001" /data
+    environment:
+      - MINIO_ROOT_USER=loki
+      - MINIO_ROOT_PASSWORD=supersecret
+      - MINIO_PROMETHEUS_AUTH_TYPE=public
+      - MINIO_UPDATE=off
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./.data/minio:/data
